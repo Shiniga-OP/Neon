@@ -1,9 +1,11 @@
 // drivers/virt/terminal.asm
+.global _escrever_saida
 .global _escrever_tex
 .global _escrever_car
 .global _escrever_hex
 .global _escrever_decimal
 .global _obter_car
+.global _obter_tex
 .global _config_uart
 
 .section .bss
@@ -26,7 +28,6 @@ _config_uart:
     ldr x2, = UART_CR
     str w1, [x9, x2]
     ret
-
 _escrever_car:
     // pega UART base diretamente
     ldr x9, = uart_base_real
@@ -35,7 +36,6 @@ _escrever_car:
     ldr x3, = UART_DR
     strb w0, [x9, x3]
     ret
-
 _obter_car:
     ldr x9, = uart_base_real
     ldr x9, [x9]
@@ -48,7 +48,6 @@ _obter_car:
     ldr x3, = UART_DR
     ldrb w0, [x9, x3]
     ret
-
 _escrever_tex:
     // preserva registradores
     stp x0, x1, [sp, -16]!
@@ -67,7 +66,28 @@ _escrever_tex:
     ldp x2, x4, [sp], 16
     ldp x0, x1, [sp], 16
     ret
-
+_escrever_saida:
+    // x0 = buffer, x1 = conta
+    stp x2, x3, [sp, -16]! // preserva x2, x3
+    stp x4, x5, [sp, -16]! // preserva x4, x5
+    
+    mov x2, x0 // buffer pra x2
+    mov x3, x1 // conta pra x3
+    
+    ldr x4, = uart_base_real
+    ldr x4, [x4]
+    ldr x5, = UART_DR
+1:
+    cbz x3, 2f // Se conta == 0, termina
+    ldrb w0, [x2], 1 // carrega caractere em w0
+    strb w0, [x4, x5] // escreve caractere na uart
+    sub x3, x3, 1 // decrementa conta
+    b 1b
+2:
+    ldp x4, x5, [sp], 16
+    ldp x2, x3, [sp], 16
+    mov x0, x1 // retorna conta original
+    ret
 _escrever_hex:
     // x0 = valor pra escrever
     stp x29, x30, [sp, -48]!

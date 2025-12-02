@@ -1,13 +1,12 @@
 # compilar FPB sem extensão
-FPB=./compiladores/fpb
+FPB=fpb
 
 FPB_FONTE := biblis/ns
 FPB_FONTE_CAMINHO := $(FPB_FONTE)
 
 compilar_fpb:
-	chmod +x compiladores/fpb
 	$(FPB) $(FPB_FONTE) -asm -O2 -sl
-
+	
 FPB_ASM := $(wildcard $(dir $(FPB_FONTE_CAMINHO))*.asm)
 
 AS=as
@@ -15,7 +14,7 @@ LD=ld
 OBJCOPY=objcopy
 
 BOOTLOADER_CODIGOS= \
-	arquiteturas/boot.asm \
+	boot.asm \
 	drivers/virt/terminal.asm \
 	drivers/virt/disco.asm
 

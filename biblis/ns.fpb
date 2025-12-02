@@ -1,6 +1,12 @@
 // biblis/ns.fpb
+#incluir "biblis/texs.asm";
 #global ns_abrir();
+#global car* status = "-status";
+#global car* ajuda = "-ajuda";
+#global car[64] comando;
+#global int conta = 0;
 
+int texcmp(car* p1, car* p2);
 car _obter_car();
 vazio ns_loop();
 
@@ -8,26 +14,34 @@ vazio ns_abrir() {
     escrever("[FPB]: teste de FPB funcionando\n");
     escrever("[Neon Script]: abrindo sessão...\n");
     escrever("~ $ ");
+    
     ns_loop();
 }
 
 vazio ns_loop() {
     car c = _obter_car();
-    
-    escrever(c);
-    
+    // processa apenas caracteres visiveis
     se(c == 0x0D) {
         escrever("\n");
+        // verifica comandos
+        se(texcmp(comando, status) == 1) {
+            escrever("[Kernel]: Neon 0.0.1\n");
+            escrever("[Arquitetura]: ARM64\n[Bibliotecas]: Neon Script 0.0.1\n");
+        } senao se(texcmp(comando, ajuda) == 1) {
+            escrever("[Comandos]:\ns: status do kernel\n");
+        } senao se(conta > 0) {
+            escrever("Erro: '", comando, "' não reconhecido\n");
+        }
+        // reinicia
+        por(int i = 0; i < conta; i++) {
+            comando[i] = (car)0x00;
+        }
+        conta = 0;
         escrever("~ $ ");
-    } senao se(c == 's') {
-        escrever("\n");
-        escrever("[Kernel]: Neon 0.0.1\n");
-        escrever("[Arquitetura]: ARM64\n[Bibliotecas]: Neon Script 0.0.1\n");
-        escrever("~ $ ");
-    } senao se(c == 'a') {
-        escrever("\n");
-        escrever("[Comandos]:\ns: status do kernel\n");
-        escrever("~ $ ");
+    } senao se(c >= 0x20 && c <= 0x7E) {  // caracteres visiveis
+        escrever(c);
+        comando[conta] = c;
+        conta++;
     }
     ns_loop();
 }
