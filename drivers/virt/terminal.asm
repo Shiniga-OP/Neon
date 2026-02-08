@@ -5,7 +5,6 @@
 .global _escrever_hex
 .global _escrever_decimal
 .global _obter_car
-.global _obter_tex
 .global _config_uart
 
 .section .bss

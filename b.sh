@@ -10,3 +10,4 @@ make qemu
 cd ../
 cp b.sh /storage/emulated/0/pacotes/neon/
 cp neon/qemu.log /storage/emulated/0/pacotes/neon/
+cp neon/debug.log /storage/emulated/0/pacotes/neon/

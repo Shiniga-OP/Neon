@@ -3,232 +3,379 @@
 .global _escrever_pixel
 .global _limpar_tela
 .global _desenhar_retangulo
+.global _att_tela
 
-// constantes VirtIO
+// constantes VirtIO GPU(MMIO)
 MAGICO = 0x00
-VERSAO = 0x04
-AMBIENTE_ID = 0x08
-VENDOR_ID = 0x0C
 STATUS = 0x70
-// constantes especificas
-VIRTIO_GPU_ID = 16 // ID 16 = GPU
-QUADROBUFFER_SEGURO = 0x44000000 // 64MB acima do inicio da RAM
+QUEUE_SEL = 0x30
+QUEUE_NUM = 0x38
+QUEUE_PRONTA = 0x44
+QUEUE_NOTIFICAR = 0x50
+QUEUE_DESC_BAIXA = 0x80
+QUEUE_DESC_ALTA = 0x84
+QUEUE_DRIVER_BAIXA = 0x90
+QUEUE_DRIVER_ALTA = 0x94
+QUEUE_AMBIENTE_BAIXA = 0xa0
+QUEUE_AMBIENTE_ALTA = 0xa4
+
+// IDs de comando VirtIO GPU
+CMD_RECURSO_CRIAR_2D  = 0x0101
+CMD_RECURSO_ANEXAR_SUPPORTE = 0x0106
+CMD_DEFINIR_VERIFICACAO = 0x0103
+CMD_TRANSFERIR_PRA_DONO_2D = 0x0105
+CMD_DESCARGA_RECURSOS = 0x0104
+
+// formato
+VIRTIO_GPU_FORMATO = 1
+
+QUADROBUFFER = 0x44000000 
+LARGURA = 1024
+ALTURA  = 768
+
+.section .data
+.align 8
+msg_buscando: .asciz "[Video]: Iniciando GPU...\r\n"
+msg_ok: .asciz "[Video]: Fila configurada. Enviando comandos...\r\n"
+msg_video_ativo: .asciz "[Video]: Tela inicializada\r\n"
 
 .section .bss
-.align 8
-fb_base: .quad 0 // endereço onde vai escrever os pixels
-fb_vertical: .word 0
-fb_horizontal: .word 0
-fb_tom: .word 0
-gpu_mmio_base: .quad 0 // endereço de controle da GPU(mmio)
+.align 16
+gpu_mmio_base: .quad 0
+.align 16
+gpu_desc: .space 4096   
+.align 16
+gpu_avail: .space 1024   
+.align 16
+gpu_used: .space 1024   
+
+.align 16
+req_gpu: .space 256
+.align 16
+resp_gpu: .space 256
 
 .section .text
 _iniciar_video:
     stp x29, x30, [sp, -16]!
-    mov x29, sp
-    stp x19, x20, [sp, -16]!
-
-    ldr x0, = msg_buscando_gpu
+    
+    ldr x0, = msg_buscando
     bl _escrever_tex
 
-    // 1. tenta encontrar a GPU no barramento
-    bl _encontrar_gpu_mmio
-    
-    // se x0 for 0, falhou
-    cbz x0, erro_gpu_nao_encontrada
+    // busca o dispositivo GPU
+    mov x1, 0x0000
+    movk x1, 0x0a00, lsl 16
+    mov x2, 0x200
+encontrar_loop:
+    ldr w3, [x1, MAGICO]
+    ldr w4, [x1, 0x08]
+    ldr w5, = 0x74726976
+    cmp w3, w5
+    b.ne proximo_dev
+    cmp w4, 16
+    b.eq encontrar_ok
+proximo_dev:
+    add x1, x1, x2
+    mov x6, 0x4000
+    movk x6, 0x0a00, lsl 16 
+    cmp x1, x6
+    b.lt encontrar_loop
+    b _fim_iniciar
+encontrar_ok:
+    ldr x10, = gpu_mmio_base
+    str x1, [x10]
 
-    // 2. salva o endereço base da GPU
-    mov x19, x0
+    // reinicio do dispositivo
+    str wzr, [x1, STATUS]
+    dsb sy
+    
+    // ACKNOWLEDGE
+    mov w3, 1             
+    str w3, [x1, STATUS]
+    dsb sy
+    
+    // DRIVER
+    mov w3, 3             
+    str w3, [x1, STATUS]
+    dsb sy
+    
+    // configura queue 0(controlq)
+    mov w3, 0
+    str w3, [x1, QUEUE_SEL]
+    
+    mov w3, 16            
+    str w3, [x1, QUEUE_NUM]
+
+    ldr x4, = gpu_desc
+    str w4, [x1, QUEUE_DESC_BAIXA]
+    lsr x4, x4, 32
+    str w4, [x1, QUEUE_DESC_ALTA]
+
+    ldr x4, = gpu_avail
+    str w4, [x1, QUEUE_DRIVER_BAIXA]
+    lsr x4, x4, 32
+    str w4, [x1, QUEUE_DRIVER_ALTA]
+
+    ldr x4, = gpu_used
+    str w4, [x1, QUEUE_AMBIENTE_BAIXA]
+    lsr x4, x4, 32
+    str w4, [x1, QUEUE_AMBIENTE_ALTA]
+
+    mov w3, 1
+    str w3, [x1, QUEUE_PRONTA]
+    dsb sy
+    
+    // DRIVER_OK
+    mov w3, 7             
+    str w3, [x1, STATUS]
+    dsb sy
+
+    ldr x0, = msg_ok
+    bl _escrever_tex
+
+    // === COMANDO 1: CRIAR_2D ===
+    ldr x0, = req_gpu
+    
+    // Leitor(24 bytes)
+    mov w1, CMD_RECURSO_CRIAR_2D 
+    str w1, [x0, 0] // tipo
+    str wzr, [x0, 4] // marcações
+    str xzr, [x0, 8] // cerca_id
+    str wzr, [x0, 16] // ctx_id
+    str wzr, [x0, 20] // preenchimento
+    
+    // corpo do comando(16 bytes)
+    mov w1, 1 // recurso_id
+    str w1, [x0, 24]       
+    mov w1, VIRTIO_GPU_FORMATO
+    str w1, [x0, 28] // formato
+    mov w1, LARGURA
+    str w1, [x0, 32] // largura
+    mov w1, ALTURA
+    str w1, [x0, 36] // altura
+    
+    mov x1, 40 // tamanho total
+    bl _enviar_comando
+
+    // === COMANDO 2: ANEXAR_RETORNO ===
+    ldr x0, = req_gpu
+    
+    // leitor
+    mov w1, CMD_RECURSO_ANEXAR_SUPPORTE
+    str w1, [x0, 0]
+    str wzr, [x0, 4]
+    str xzr, [x0, 8]
+    str wzr, [x0, 16]
+    str wzr, [x0, 20]
+    
+    // Corpo do comando
+    mov w1, 1 // recurso_id
+    str w1, [x0, 24]       
+    mov w1, 1 // nr_entradas
+    str w1, [x0, 28]
+    
+    // entrada da mem_entrada(16 bytes cada)
+    ldr x2, = QUADROBUFFER
+    str x2, [x0, 32] // endereço
+    mov w1, LARGURA
+    mov w2, ALTURA
+    mul w1, w1, w2
+    lsl w1, w1, 2 // largura * altura * 4 bytes
+    str w1, [x0, 40] // tamanho
+    str wzr, [x0, 44] // preenchimento
+    
+    mov x1, 48
+    bl _enviar_comando
+
+    // === COMANDO 3: DEFINIR_VERIFICACAO ===
+    ldr x0, = req_gpu
+    
+    // leitor(24 bytes: posições 0-23)
+    mov w1, CMD_DEFINIR_VERIFICACAO
+    str w1, [x0, 0] // tipo
+    str wzr, [x0, 4] // marcações
+    str xzr, [x0, 8] // cerca_id
+    str wzr, [x0, 16] // ctx_id
+    str wzr, [x0, 20] // preenchimento
+    
+    // corpo: struct virtio_gpu_rect r(16 bytes: posições 24-39)
+    str wzr, [x0, 24] // r.x
+    str wzr, [x0, 28] // r.y
+    mov w1, LARGURA
+    str w1, [x0, 32] // r.largura
+    mov w1, ALTURA
+    str w1, [x0, 36] // r.altura
+    
+    // campos finais(8 bytes: posições 40-47)
+    str wzr, [x0, 40] // digitalizacao_id = 0
+    mov w1, 1 // recurso_id = 1
+    str w1, [x0, 44]
+    
+    mov x1, 48 // tamanho total
+    bl _enviar_comando
+
+    // limpa a tela com azul
+    mov w0, 0xFF0000FF
+    bl _limpar_tela
+    
+    bl _att_tela
+
+    ldr x0, = msg_video_ativo
+    bl _escrever_tex
+
+_fim_iniciar:
+    ldp x29, x30, [sp], 16
+    ret
+_enviar_comando:
+    // x0 = endereço do comando
+    // x1 = tamanho do comando
+    
+    stp x19, x20, [sp, -16]!
+    stp x21, x22, [sp, -16]!
+    
+    mov x19, x0 // salva endereço
+    mov x20, x1 // salva tamanho
+    
+    // configura descritor 0(comando de saida)
+    ldr x2, = gpu_desc
+    str x19, [x2, 0] // endereço
+    str w20, [x2, 8] // tamanho
+    mov w3, 1 // marcações = proximo
+    strh w3, [x2, 12]
+    mov w3, 1 // proximo = 1
+    strh w3, [x2, 14]
+    
+    // configurar descritor 1(resposta de entrada)
+    add x2, x2, 16
+    ldr x4, = resp_gpu
+    str x4, [x2, 0] // endereço
+    mov w1, 24 // tamanho (leitor de resposta)
+    str w1, [x2, 8]
+    mov w3, 2 // marcações = escrever
+    strh w3, [x2, 12]
+    strh wzr, [x2, 14] // proximo = 0
+    
+    dsb sy
+    
+    // adiciona fila disponivel
+    ldr x2, = gpu_avail
+    ldrh w21, [x2, 2] // idc atual
+    and w4, w21, 15
+    add x5, x2, 4
+    strh wzr, [x5, x4, lsl 1]  // anel[idc] = 0
+    
+    dsb sy
+    add w21, w21, 1
+    strh w21, [x2, 2] // incrementa idc
+    dsb sy
+    
+    // notifica dispositivo
     ldr x1, = gpu_mmio_base
-    str x0, [x1]
-
-    ldr x0, = msg_gpu_encontrada
-    bl _escrever_tex
+    ldr x1, [x1]
+    mov w0, 0
+    str w0, [x1, QUEUE_NOTIFICAR]
+    dsb sy
     
-    // imprime o endereço onde achou
-    mov x0, x19
-    bl _escrever_hex
-    ldr x0, = nova_linha
-    bl _escrever_tex
-
-    // 3. inicia o status do VirtIO(protocolo basico)
-    // reinicia(0)
-    mov w1, 0
-    str w1, [x19, STATUS]
+    // espera resposta
+    mov x7, 0x10000000
+    ldr x2, = gpu_used
+esperar_gpu:
+    dsb sy
+    ldrh w22, [x2, 2]
+    cmp w21, w22
+    b.eq pronta_gpu
+    subs x7, x7, 1
+    b.ne esperar_gpu
     
-    // acknowledge(1)
-    mov w1, 1
-    str w1, [x19, STATUS]
-    
-    // driver(1 | 2 = 3)
-    mov w1, 3
-    str w1, [x19, STATUS]
-
-    // 4. configuração(não configura de verdade ainda)
-    // define uma area de RAM segura pra desenhar, mesmo que não apareça
-    ldr x0, = QUADROBUFFER_SEGURO 
-    ldr x1, = fb_base
-    str x0, [x1]
-    // define resolução padrão(apenas pra logica de desenho)
-    mov w0, 1024
-    ldr x1, = fb_vertical
-    str w0, [x1]
-
-    mov w0, 768
-    ldr x1, = fb_horizontal
-    str w0, [x1]
-
-    mov w0, 4096 // 1024 * 4 bytes
-    ldr x1, = fb_tom
-    str w0, [x1]
-
-    ldr x0, = msg_fb_configurado
-    bl _escrever_tex
-
-    // limpa a tela, vau escrever em 0x44000000
-    // cor azul escuro
-    ldr w0, = 0xFF000080
-    // bl _limpar_tela
-
-    b fim_inicio
-erro_gpu_nao_encontrada:
-    ldr x0, = msg_erro_gpu
-    bl _escrever_tex
-fim_inicio:
+pronta_gpu:
+    ldp x21, x22, [sp], 16
     ldp x19, x20, [sp], 16
-    ldp x29, x30, [sp], 16
     ret
-// varre a memoria mmio procurando ID ambiente 16
-// x0 = retorna endereço Base ou 0
-_encontrar_gpu_mmio:
+
+_att_tela:
     stp x29, x30, [sp, -16]!
-    mov x29, sp
-    stp x19, x20, [sp, -16]!
-
-    ldr x19, = 0x0a000000  // inicio mmio virt
-    mov x20, 0 // contador(0 a 31)
-loop_busca:
-    cmp x20, 32
-    b.ge nao_achei
-
-    // verifica o valor magico(0x74726976)
-    ldr w1, [x19, MAGICO]
-    ldr w2, = 0x74726976
-    cmp w1, w2
-    b.ne proximo_slot
-
-    // verifica ID ambiente(GPU = 16)
-    ldr w1, [x19, AMBIENTE_ID]
-    cmp w1, VIRTIO_GPU_ID
-    b.eq achei
-proximo_slot:
-    add x19, x19, 0x200 // avança 512 bytes
-    add x20, x20, 1
-    b loop_busca
-achei:
-    mov x0, x19 // retorna endereço encontrado
-    b fim_busca
-nao_achei:
-    mov x0, 0
-fim_busca:
-    ldp x19, x20, [sp], 16
+    
+    // === TRANSFERIR_PRA_DONO_2D ===
+    ldr x0, = req_gpu
+    
+    // leitor
+    mov w1, CMD_TRANSFERIR_PRA_DONO_2D
+    str w1, [x0, 0]
+    str wzr, [x0, 4]
+    str xzr, [x0, 8]
+    str wzr, [x0, 16]
+    str wzr, [x0, 20]
+    
+    // corpo: struct virtio_gpu_rect r
+    str wzr, [x0, 24] // r.x
+    str wzr, [x0, 28] // r.y
+    mov w1, LARGURA
+    str w1, [x0, 32] // r.largura
+    mov w1, ALTURA
+    str w1, [x0, 36] // r.altura
+    
+    // campos finais
+    str xzr, [x0, 40] // posição(64-bit)
+    mov w1, 1 // recurso_id
+    str w1, [x0, 48]
+    str wzr, [x0, 52] // preenchimento
+    
+    mov x1, 56
+    bl _enviar_comando
+    
+    // === DESCARGA_RECURSOS ===
+    ldr x0, = req_gpu
+    
+    // leitor
+    mov w1, CMD_DESCARGA_RECURSOS
+    str w1, [x0, 0]
+    str wzr, [x0, 4]
+    str xzr, [x0, 8]
+    str wzr, [x0, 16]
+    str wzr, [x0, 20]
+    
+    // corpo: struct virtio_gpu_rect r
+    str wzr, [x0, 24] // r.x
+    str wzr, [x0, 28] // r.y
+    mov w1, LARGURA
+    str w1, [x0, 32] // r.largura
+    mov w1, ALTURA
+    str w1, [x0, 36] // r.altura
+    
+    // recurso_id
+    mov w1, 1
+    str w1, [x0, 40]
+    str wzr, [x0, 44] // preenchimento
+    
+    mov x1, 48
+    bl _enviar_comando
+    
     ldp x29, x30, [sp], 16
     ret
-// _escrever_pixel
-// w0=x, w1=y, w2=cor(ARGB)
-_escrever_pixel:
-    // verifica se fb_base foi iniciado
-    ldr x3, = fb_base
-    ldr x3, [x3]
-    cbz x3, ret_pixel // se for 0, retorna(proteção)
 
-    ldr x4, = fb_tom
-    ldr w4, [x4]
-    
-    // calculo: endereço = base + (y * tom) + (x * 4)
-    mul w5, w1, w4 // y * tom
-    mov w6, 4
-    madd w5, w0, w6, w5 // + (x * 4)
-    add x3, x3, x5 // endereço final
-
-    str w2, [x3] // escreve o pixel na RAM
-ret_pixel:
-    ret
-// _limpar_tela
-// w0 = cor(0x00RRGGBB)
 _limpar_tela:
-    stp x29, x30, [sp, -32]!
-    mov x29, sp
-    str x19, [sp, 16]
-
+    // x0 = cor no formato BGRA (0xAARRGGBB)
+    stp x29, x30, [sp, -16]!
+    
+    // salva a cor em w19
     mov w19, w0
     
-    ldr x0, = fb_base
-    ldr x0, [x0]
-    cbz x0, fim_limpar // proteção se base for 0
-
-    ldr x1, = fb_horizontal
-    ldr w1, [x1]
-    ldr x2, =fb_tom
-    ldr w2, [x2]
-
-    mul w3, w1, w2 // total bytes
-    mov x4, 0
+    // preenche a tela com a cor recebida
+    ldr x1, = QUADROBUFFER
+    
+    mov x2, LARGURA
+    mov x3, ALTURA
+    mul x2, x2, x3 // total de pixels
 loop_limpar:
-    cmp x4, x3
-    b.ge fim_limpar
-    str w19, [x0, x4]
-    add x4, x4, 4
-    b loop_limpar
-fim_limpar:
-    ldr x19, [sp, 16]
-    ldp x29, x30, [sp], 32
+    str w19, [x1], 4
+    subs x2, x2, 1
+    b.ne loop_limpar
+    
+    ldp x29, x30, [sp], 16
     ret
-// _desenhar_retangulo
-// w0=x, w1=y, w2=v, w3=h, w4=cor
+
+_escrever_pixel:
+    ret
+
 _desenhar_retangulo:
-    stp x29, x30, [sp, -48]!
-    mov x29, sp
-    stp x19, x20, [sp, 16]
-    stp x21, x22, [sp, 32]
-    str x23, [sp, 48]
-
-    mov w19, w0 // x
-    mov w20, w1 // y
-    mov w21, w2 // v
-    mov w22, w3 // h
-    mov w23, w4 // cor
-
-    mov w24, 0 // contador y
-loop_quadrado_y:
-    cmp w24, w22
-    b.ge fim_quadrado
-
-    mov w25, 0 // contador x
-loop_quadrado_x:
-    cmp w25, w21
-    b.ge prox_linha_quadrado
-
-    // calcula coordenadas atuais
-    add w0, w19, w25
-    add w1, w20, w24
-    mov w2, w23
-    bl _escrever_pixel
-
-    add w25, w25, 1
-    b loop_quadrado_x
-prox_linha_quadrado:
-    add w24, w24, 1
-    b loop_quadrado_y
-fim_quadrado:
-    ldr x23, [sp, 48]
-    ldp x21, x22, [sp, 32]
-    ldp x19, x20, [sp, 16]
-    ldp x29, x30, [sp], 48
     ret
-.section .rodata
-msg_buscando_gpu: .asciz "[Video]: Procurando VirtIO GPU...\n"
-msg_gpu_encontrada: .asciz "[Video]: GPU Encontrada em: "
-msg_erro_gpu: .asciz "[Video]: ERRO - GPU Nao encontrada!\n"
-nova_linha: .asciz "\n"
-msg_fb_configurado: .asciz "[Video]: Quadrobuffer seguro configurado na RAM\n"
+    

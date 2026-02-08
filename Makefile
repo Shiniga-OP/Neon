@@ -78,6 +78,8 @@ qemu: disco.img
 	-global virtio-mmio.force-legacy=false \
 	-serial stdio \
 	-vnc :1 \
-	-d in_asm -D qemu.log
+	-d in_asm -D qemu.log \
+	-d guest_errors \
+	-D debug.log
 
 .PHONY: limpar qemu

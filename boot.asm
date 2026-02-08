@@ -185,8 +185,7 @@ soma_loop:
     
     ldr x0, = msg_salto
     bl _escrever_tex
-    ldr x0, = 0x40200000
-    blr x0
+    bl descer_pra_el1
     
     // se retornou, algo deu errado
     ldr x0, = msg_retornou_erro
@@ -216,8 +215,7 @@ debug_continuar:
     ldr x0, = msg_salto
     bl _escrever_tex
     
-    ldr x0, = 0x40200000 // endereço do kernel
-    blr x0
+    bl descer_pra_el1
     
 kernel_zerado:
     ldr x0, = msg_kernel_zerado
@@ -245,7 +243,41 @@ erro_carregamento:
     ldr x0, = msg_status
     bl _escrever_tex
     b nova_linha
+    
+descer_pra_el1:
+    mrs x0, CurrentEL
+    lsr x0, x0, 2
+    cmp x0, 1
+    b.eq ja_em_el1
 
+    // pilha EL1
+    ldr x0, = _pilha_fim
+    msr SP_EL1, x0
+
+    // HCR_EL2: EL1 em ARM64
+    mov x0, (1 << 31)
+    msr HCR_EL2, x0
+
+    // SPSR_EL2 -> EL1h
+    mov x0, (0b0101)
+    orr x0, x0, (1 << 6)
+    orr x0, x0, (1 << 7)
+    orr x0, x0, (1 << 8)
+    msr SPSR_EL2, x0
+
+    // PC do kernel
+    ldr x0, = msg_EL2
+    bl _escrever_tex
+    ldr x0, = 0x40200000
+    msr ELR_EL2, x0
+
+    eret
+ja_em_el1:
+    ldr x0, = msg_EL1
+    bl _escrever_tex
+    // carrega o kernel
+    ldr x0, = 0x40200000
+    br x0
 .section .rodata
 comando: .asciz "~ $ "
 msg_carregando: .asciz "[bootloader]: Carregando kernel...\r\n"
@@ -271,7 +303,9 @@ msg_confirmacao_salto: .asciz "[DEBUG] Saltando para kernel em 2 segundos...\r\n
 msg_kernel_zerado: .asciz "[ERRO] Kernel zerado - possivel falha no carregamento\r\n"
 msg_memoria_defeituosa: .asciz "[ERRO] Memória defeituosa\r\n"
 msg_nova_linha: .asciz "\r\n"
-msg_debug_critico: .asciz "[DEBUG CRITICO] Testando execução do kernel...\r\n"
+msg_debug_critico: .asciz "[DEBUG] Testando execução do kernel...\r\n"
 msg_testando_execucao: .asciz "[DEBUG] Testando execução controlada...\r\n"
 msg_retornou_erro: .asciz "[ERRO] Kernel retornou - código inválido\r\n"
 msg_teste_passou: .asciz "[DEBUG] Teste de execução passou!\r\n"
+msg_EL2: .asciz "[bootloader]: é EL2 isso aí\n[bootloader]: mudando pra EL1\n"
+msg_EL1: .asciz "[bootloader]: já é EL1 sabomba\n"

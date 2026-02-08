@@ -13,7 +13,6 @@ vazio _iniciar_video();
 vazio _limpar_tela(byte cor);
 
 vazio ns_abrir() {
-    _iniciar_video();
     escrever("[FPB]: teste de FPB funcionando\n");
     escrever("[Neon Script]: abrindo sessão...\n");
     escrever("~ $ ");
@@ -25,8 +24,8 @@ vazio ns_abrir() {
 }
 
 vazio ns_loop() {
-    // cor Azul = 0xFF000080
-    _limpar_tela(0xFF000080);
+    // azul = 0xFF0000FF
+    // verde = 0xFF00FF00
     car c = _obter_car();
     // processa apenas caracteres visiveis
     se(c == 0x0D) {

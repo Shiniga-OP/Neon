@@ -40,7 +40,7 @@ _carregar_kernel:
 
     mov x19, x0 // salva endereço base
 
-    // inicializa dispositivo
+    // inicia dispositivo
     bl _inicia_dispositivo
     cbnz x0, erro_inicializacao
 
@@ -188,43 +188,43 @@ _inicia_dispositivo:
     ldr x0, = msg_reinicio_ambiente
     bl _escrever_tex
     mov x0, 0
-    str x0, [x19, STATUS]
+    str w0, [x19, STATUS]
 
     // 2. define ACKNOWLEDGE(status = 1)
     ldr x0, = msg_def_ack
     bl _escrever_tex
     mov x0, 1
-    str x0, [x19, STATUS]
+    str w0, [x19, STATUS]
 
     // 3. define driver(status = 3)
     ldr x0, = msg_def_driver
     bl _escrever_tex
     mov x0, 3
-    str x0, [x19, STATUS]
+    str w0, [x19, STATUS]
 
     // 4. negociação de recursos(0)
     ldr x0, = msg_negociar_recursos
     bl _escrever_tex
     mov x0, 0
-    str x0, [x19, DRIVER_RECURSOS]
+    str w0, [x19, DRIVER_RECURSOS]
 
     // 5. define RECURSOS_OK(status = 11)
     ldr x0, = msg_def_recursos_ok
     bl _escrever_tex
     mov x0, 11 
-    str x0, [x19, STATUS]
+    str w0, [x19, STATUS]
 
     // 6. configura queue 0
     ldr x0, = msg_config_queue
     bl _escrever_tex
     mov x0, 0
-    str x0, [x19, QUEUE_SEL]
+    str w0, [x19, QUEUE_SEL]
 
     // 6.1. define tamanho da queue(8)
     ldr x0, = msg_def_queue_tam
     bl _escrever_tex
     mov x0, 8
-    str x0, [x19, QUEUE_NUM]
+    str w0, [x19, QUEUE_NUM]
 
     // 6.2. configura endereços da desc_tabela, disponivel_anel e usado_anel
     
@@ -295,13 +295,13 @@ _inicia_dispositivo:
     ldr x0, = msg_def_queue_pronta
     bl _escrever_tex
     mov x0, 1
-    str x0, [x19, QUEUE_PRONTA]
+    str w0, [x19, QUEUE_PRONTA]
 
     // 8. def DRIVER_OK(status = 15)
     ldr x0, = msg_def_driver_ok
     bl _escrever_tex
     mov x0, 15
-    str x0, [x19, STATUS]
+    str w0, [x19, STATUS]
 
     ldr x0, = msg_inicio_sucesso
     bl _escrever_tex
@@ -396,30 +396,21 @@ ler_loop:
     mov w1, DESC_F_GRAVAR
     strh w1, [x0, 12]
     
-    // barreira: garante que descritores foram escritos antes de atualizar o anel
-    dmb sy
-
     // 4. atualizar anel disponivel
     ldr x4, = disponivel_anel
     ldrh w5, [x4, 2] // idc atual
     
-    and w6, w5, 7      
-    lsl w6, w6, 1      
-    add x6, x6, 4      
-    add x6, x4, x6     
+    and w6, w5, 7
+    lsl w6, w6, 1
+    add x6, x6, 4
+    add x6, x4, x6
     
     mov w7, 0 // cabeca indice = 0
     strh w7, [x6]
 
-    // barreira: garante que o indice foi escrito no array anel[] antes de atualizar o idc global
-    dmb sy
-
     // 5. atualiza disponivel->idc
     add w5, w5, 1
     strh w5, [x4, 2]
-    
-    // barreira: garante que tudo acima ta na RAM antes de notificar
-    dmb sy
 
     // 6. notifica
     ldr x0, = msg_notificando
@@ -450,9 +441,6 @@ ler_loop:
     // se chegou aqui, deu timeout
     b ler_timeout
 ler_concluido:
-    // barreira: garante que a leitura do buffer não aconteça antes do dispositivo terminar
-    dmb sy
-
     // limpar interrupção
     mov w0, 1
     str w0, [x23, INTERRUPCAO_STATUS]
@@ -486,10 +474,8 @@ ler_erro:
     bl _escrever_tex
     mov x0, 1
     b ler_fim
-
 ler_sucesso:
     mov x0, 0
-
 ler_fim:
     ldp x25, x26, [sp, 64]
     ldp x23, x24, [sp, 48]
@@ -647,17 +633,14 @@ verificar_fim:
 // estruturas virtIO
 .align 12
 desc_tabela: .space 16 * 8
-
 .align 12
 disponivel_anel: .space 4 + (2 * 8) + 2
-
 .align 12
-usado_anel:  .space 4 + (8 * 8) + 2
+usado_anel: .space 4 + (8 * 8) + 2
 
 // dados
 .align 8
-blk_req:    .space 16
-
+blk_req: .space 16
 .align 4
 status_byte: .space 1
 
@@ -670,7 +653,7 @@ msg_iniciando2: .asciz "Inicializando dispositivo...\r\n"
 msg_erro_inicio: .asciz "Erro na inicializacao\r\n"
 msg_lendo_setor: .asciz "Lendo setor: "
 msg_erro_leitura: .asciz "Erro na leitura\r\n"
-msg_sucesso: .asciz "Kernel carregado!\r\n"
+msg_sucesso: .asciz "Kernel carregado\r\n"
 msg_nova_linha: .asciz "\r\n"
 msg_timeout: .asciz "Timeout na leitura\r\n"
 msg_erro_status: .asciz "Erro de status\r\n"
@@ -690,9 +673,9 @@ msg_config_disponivel_anel: .asciz "Configurando disponivel_anel...\r\n"
 msg_disponivel_anel_endereco: .asciz "Endereço disponivel_anel: "
 msg_config_usado_anel: .asciz "Configurando usado_anel...\r\n"
 msg_usado_anel_addr: .asciz "Endereço usado_anel: "
-msg_def_queue_pronta: .asciz "Setando QUEUE_READY...\r\n"
-msg_def_driver_ok: .asciz "Setando DRIVER_OK...\r\n"
-msg_inicio_sucesso: .asciz "Dispositivo inicializado com sucesso!\r\n"
+msg_def_queue_pronta: .asciz "Definindo QUEUE_PRONTA...\r\n"
+msg_def_driver_ok: .asciz "Definindo DRIVER_OK...\r\n"
+msg_inicio_sucesso: .asciz "Dispositivo inicializado com sucesso\r\n"
 msg_inicio_erro: .asciz "Erro na inicializacao do dispositivo\r\n"
 msg_verificando_config: .asciz "Verificando configuracao VirtIO...\r\n"
 msg_desc_tabela: .asciz "desc_tabela: "

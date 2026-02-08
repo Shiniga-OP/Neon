@@ -1,0 +1,41 @@
+// drivers/virt/disco.fpb
+#def ICO = 0x00
+#def AMBIENTE_ID = 0x08
+#def DRIVER_RECURSOS = 0x20
+#def QUEUE_SEL = 0x30
+#def QUEUE_NUM = 0x38
+#def QUEUE_PRONTA = 0x44
+#def QUEUE_NOTIFICAR = 0x50
+#def INTERRUPCAO_STATUS = 0x60
+#def STATUS = 0x70
+#def QUEUE_DESC_BAIXA = 0x80
+#def VIRTIO_QUEUE_DESC_ALTA = 0x84
+#def QUEUE_DRIVER_BAIXA = 0x90
+#def QUEUE_DRIVER_ALTA = 0x94
+#def QUEUE_AMBIENTE_BAIXA = 0xa0
+#def QUEUE_AMBIENTE_ALTA = 0xa4
+
+// marcações:
+#global int DESC_F_PROXIMO = 1
+#global int DESC_F_GRAVAR = 2
+#global int BLK_T_ENTRADA = 0
+
+#global _carregar_kernel();
+
+vazio _encontrar_blk();
+vazio _verificar_blk(int* p);
+
+vazio _carregar_kernel() {
+    escrever("Iniciando carregamento...\r\n");
+    _encontrar_blk();
+}
+
+vazio _encontrar_blk() {
+    escrever("Procurando dispositivo VirtIO-blk...\r\n");
+    byte* p = 0x0a000000;
+    _verificar_blk(p)
+}
+
+vazio _verificar_blk(byte* p) {
+    int ponteiro = p;
+}
