@@ -1,13 +1,11 @@
 # compilar FPB sem extensão
 FPB=fpb
 
-FPB_FONTE := biblis/ns
+FPB_FONTE := biblis/ns.fpb
 FPB_FONTE_CAMINHO := $(FPB_FONTE)
 
 compilar_fpb:
-	$(FPB) $(FPB_FONTE) -asm -sl -O2
-	
-FPB_ASM := $(wildcard $(dir $(FPB_FONTE_CAMINHO))*.asm)
+	$(FPB) $(FPB_FONTE) -sl -asm -O2
 
 AS=as
 LD=ld
@@ -24,7 +22,7 @@ KERNEL_CODIGOS= \
 	nucleo/kernel.asm \
 	drivers/virt/terminal.asm \
 	drivers/virt/video.asm \
-	$(FPB_ASM)
+	biblis/ns.asm
 
 KERNEL_OBJETOS=$(KERNEL_CODIGOS:.asm=.o)
 
